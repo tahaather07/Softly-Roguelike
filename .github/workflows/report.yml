@@ -1,55 +1,20 @@
-name: SonarCloud Report
+name: Sonar Report
 
 on:
-  workflow_dispatch:   
+  workflow_dispatch:
 
 jobs:
   sonar-report:
     runs-on: ubuntu-22.04
-
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
-      - name: Install dependencies
-        run: pip install requests pandas
-
       - name: Fetch SonarCloud metrics
         run: |
-          python <<EOF
-          import requests, pandas as pd, os, time
+          curl -s -u "${{ secrets.SONAR_TOKEN }}:" \
+          "https://sonarcloud.io/api/measures/component?component=tahaather07_Softly-Roguelike&metricKeys=complexity,cognitive_complexity,duplicated_lines_density,coverage,branch_coverage,bugs,vulnerabilities,code_smells,sqale_index,sqale_rating" \
+          -o sonar_report.json
 
-          project_key = os.getenv("SONAR_PROJECT_KEY")
-          sonar_token = os.getenv("SONAR_TOKEN")
-
-          metrics = "complexity,cognitive_complexity,duplicated_lines_density,coverage,code_smells,bugs,vulnerabilities,sqale_index"
-          url = f"https://sonarcloud.io/api/measures/component?component={project_key}&metricKeys={metrics}"
-
-          for attempt in range(10):
-              response = requests.get(url, auth=(sonar_token, "")).json()
-              measures = response.get("component", {}).get("measures", [])
-              if measures:
-                  df = pd.DataFrame(measures)
-                  df.to_csv("sonar_report.csv", index=False)
-                  print("✅ Report written to sonar_report.csv")
-                  break
-              else:
-                  print(f"⏳ No metrics yet (attempt {attempt+1}/10). Retrying in 20s...")
-                  time.sleep(20)
-          else:
-              print("⚠️ Failed to fetch metrics after retries")
-          EOF
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
-
-      - name: Upload report artifact
+      - name: Upload metrics artifact
         uses: actions/upload-artifact@v4
         with:
           name: sonar-report
-          path: sonar_report.csv
+          path: sonar_report.json
