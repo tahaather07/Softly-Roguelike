@@ -1,49 +1,28 @@
-name: report
+name: SonarCloud Report
 
 on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main  
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:   
 
 jobs:
-  build:
-    name: Build and analyze
+  sonar-report:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.7"   
+          python-version: "3.x"
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-cov requests pandas
-
-      - name: Run tests (ignore if none)
-        run: |
-          pytest --cov=. --cov-report=xml || echo "No tests found, skipping coverage"
-
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: pip install requests pandas
 
       - name: Fetch SonarCloud metrics
         run: |
           python <<EOF
-          import requests, pandas as pd, os
+          import requests, pandas as pd, os, time
 
           project_key = os.getenv("SONAR_PROJECT_KEY")
           sonar_token = os.getenv("SONAR_TOKEN")
@@ -51,18 +30,25 @@ jobs:
           metrics = "complexity,cognitive_complexity,duplicated_lines_density,coverage,code_smells,bugs,vulnerabilities,sqale_index"
           url = f"https://sonarcloud.io/api/measures/component?component={project_key}&metricKeys={metrics}"
 
-          response = requests.get(url, auth=(sonar_token, "")).json()
-          measures = response.get("component", {}).get("measures", [])
-
-          df = pd.DataFrame(measures)
-          df.to_csv("sonar_report.csv", index=False)
-          print("✅ SonarCloud report saved to sonar_report.csv")
+          for attempt in range(10):
+              response = requests.get(url, auth=(sonar_token, "")).json()
+              measures = response.get("component", {}).get("measures", [])
+              if measures:
+                  df = pd.DataFrame(measures)
+                  df.to_csv("sonar_report.csv", index=False)
+                  print("✅ Report written to sonar_report.csv")
+                  break
+              else:
+                  print(f"⏳ No metrics yet (attempt {attempt+1}/10). Retrying in 20s...")
+                  time.sleep(20)
+          else:
+              print("⚠️ Failed to fetch metrics after retries")
           EOF
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
 
-      - name: Upload Sonar report
+      - name: Upload report artifact
         uses: actions/upload-artifact@v4
         with:
           name: sonar-report
