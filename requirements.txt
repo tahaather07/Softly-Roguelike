@@ -1,2 +1,4 @@
 numpy==1.21.6
-tcod ~= 1.10.0
+tcod==13.8.1
+pytest
+pytest-cov
