@@ -83,6 +83,13 @@ def play(pc, pcAct):
     
 
         # Class definitions #
+def privacy_mode_enabled():
+    try:
+        val = os.getenv("PRIVACY_MODE", "0").strip().lower()
+        return val in ("1", "true", "yes", "on")
+    except Exception:
+        return False
+
 
 
 class GlobalSettings:
@@ -113,6 +120,7 @@ class GlobalSettings:
         "HIGHLIGHT COLOR"   : "TRUEBLUE",
         "SLEEP TIME"        : 1,
         "COLORED STRINGS"   : "ATK,trueblue;DV,red",
+        "PRIVACY MODE"      : 0,
     }
 
     COMMENTS = {
@@ -140,6 +148,7 @@ class GlobalSettings:
         self.colors={}
         self.sleep_time=0
         self._colored_strings=[]
+        self.privacy_mode = privacy_mode_enabled()
         
     def apply(self):
         '''
@@ -166,10 +175,14 @@ class GlobalSettings:
             print("Settings loaded from '{}'".format(self.file) )
 
         except FileNotFoundError:
-            print(GlobalSettings._alertSettingsNotFound)
-            self._write_defaults()
-            print(GlobalSettings._settingsCreated)
-            self.read()
+            if self.privacy_mode:
+                print("Settings file '{}' not found. Using in-memory defaults (privacy mode).".format(self.file))
+                self._load_defaults()
+            else:
+                print(GlobalSettings._alertSettingsNotFound)
+                self._write_defaults()
+                print(GlobalSettings._settingsCreated)
+                self.read()
         except:
             print(GlobalSettings._errorSettingsCorrupted)
             print("Last line read from '{}': {}".format(self.file, self.lastLine))
@@ -227,13 +240,40 @@ class GlobalSettings:
             for element in elements:
                 if not element: continue
                 self._colored_strings.append(element.split(","))
+        elif "PRIVACY MODE" in line:
+            self.privacy_mode = bool(int(strng))
         elif "#" in line:           #<- all colors, and only colors, begin with '#'
             self._parse_color(line, strng)
+
+    def _load_defaults(self):
+        self.renderer = int(GlobalSettings.DEFAULTS["RENDERER"])
+        self.window_width = int(GlobalSettings.DEFAULTS["WINDOW WIDTH"])
+        self.window_height = int(GlobalSettings.DEFAULTS["WINDOW HEIGHT"])
+        self.fpsmax = int(GlobalSettings.DEFAULTS["FPS MAX"])
+        self.showfps = bool(int(GlobalSettings.DEFAULTS["SHOW FPS"]))
+        self.highlightPC = bool(int(GlobalSettings.DEFAULTS["HIGHLIGHT PC"]))
+        self.highlightColor = str(GlobalSettings.DEFAULTS["HIGHLIGHT COLOR"]).lower()
+        self.sleep_time = int(GlobalSettings.DEFAULTS["SLEEP TIME"])
+        self._colored_strings=[]
+        colored = GlobalSettings.DEFAULTS["COLORED STRINGS"]
+        for element in colored.split(";"):
+            if not element:
+                continue
+            self._colored_strings.append(element.split(","))
+        self.tileset = os.path.join(os.path.curdir, os.path.pardir, "tilesets", str(GlobalSettings.DEFAULTS["TILESET"]))
+        # privacy mode default comes from environment by default, but honor DEFAULTS too
+        try:
+            self.privacy_mode = bool(int(GlobalSettings.DEFAULTS.get("PRIVACY MODE", 0))) or self.privacy_mode
+        except Exception:
+            pass
 
     def _write_defaults(self):
         '''
             create new settings.txt file from defaults
         '''
+        if self.privacy_mode:
+            print("Privacy mode enabled; skipping writing '{}' to disk.".format(GlobalSettings.settingsFileName))
+            return
         
         def write_line(file, k,v):
             comment=self.COMMENTS.get(k, None)
@@ -539,6 +579,11 @@ class SavedGame:
     
     def __init__(self):
         self.create_defaultData()
+        # privacy: do not create or write save files/directories
+        if privacy_mode_enabled():
+            self.file = None
+            self.playableJobs=[]
+            return
         #global save data is progress shared across savegames
         def getGlobalSaveFile():
             fname="globalsavedata.sav"
@@ -579,6 +624,14 @@ class SavedGame:
 
     #load the global saved data that's shared between games
     def loadSavedData(self):
+        if privacy_mode_enabled() or not self.file:
+            # use defaults only; do not read from disk
+            self.playableJobs = []
+            for item in self.DEFAULTS:
+                if item == 'jobs':
+                    continue
+                self.playableJobs.append(item)
+            return
         mode=''
         try:
             with open(self.file, 'r') as file:

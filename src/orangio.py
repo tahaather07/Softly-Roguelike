@@ -1021,13 +1021,24 @@ NO_KEY=(-1,(False,False,False,),) # NULL key constant
 
 # init_keyBindings
 # call during setup to initialize the keyboard controls
+def _privacy_mode_enabled():
+    try:
+        val = os.getenv("PRIVACY_MODE", "0").strip().lower()
+        return val in ("1", "true", "yes", "on")
+    except Exception:
+        return False
+
 def init_keyBindings():
     try:
         _init_keyBindings()
     except FileNotFoundError:
-        print("'key_bindings.txt' file not found. Creating new file from defaults...")
-        _keyBindings_writeFromDefault()
-        _init_keyBindings()
+        if _privacy_mode_enabled():
+            print("'key_bindings.txt' not found. Using in-memory defaults (privacy mode).")
+            _init_keyBindings_from_lines(KEYBINDINGS_TEXT_DEFAULT.splitlines(True))
+        else:
+            print("'key_bindings.txt' file not found. Creating new file from defaults...")
+            _keyBindings_writeFromDefault()
+            _init_keyBindings()
 
 #
 # *DO NOT CALL THIS FUNCTION*
@@ -1108,7 +1119,61 @@ def _init_keyBindings():
         raise(Error_wrongNumberCommandsLoaded)
 #end def _init_keyBindings
 
+def _init_keyBindings_from_lines(lines):
+    global bind
+
+    codes = []
+    combin = []
+    numCommands=0
+
+    for line in lines:
+        if file_is_line_comment(line): continue
+        numCommands += 1
+        line=word.remove_blankspace(line)
+        line=line.lower()
+        if "none" in line:
+            combin.append( (False,False,False,) )
+            codes.append(-1)
+            continue
+        delete=0
+        if 'shift+' in line:
+            delete+=6; _shf=True
+        else: _shf=False
+        if 'ctrl+' in line:
+            delete+=5; _ctl=True
+        else: _ctl=False
+        if 'alt+' in line:
+            delete+=4; _alt=True
+        else: _alt=False
+        combinData=(_shf,_ctl,_alt,)
+        if delete: line=line[delete:]
+        if len(line) > 1 and line[1] == '\n':
+            codeData=key_getchar(ord(line[0]))
+        else:
+            new = TEXT_TO_KEY.get(line[:-1],-1)
+            codeData=new
+        combin.append(combinData)
+        codes.append(codeData)
+
+    print("Key bindings loaded from in-memory defaults")
+
+    n = NUM_ALT_CMDS
+    if not ( numCommands == n*len(COMMANDS.keys()) ):
+        print("number of commands: ", numCommands)
+        print("number expected: ", n*len(COMMANDS.keys()))
+        raise(Error_wrongNumberCommandsLoaded)
+    try:
+        for i,v in enumerate(COMMANDS.keys()):
+            for j in range(n):
+                index = i*n + j
+                bind.update({ (codes[index], combin[index],) : v })
+    except:
+        raise(Error_wrongNumberCommandsLoaded)
+
 def _keyBindings_writeFromDefault():
+    if _privacy_mode_enabled():
+        print("Privacy mode enabled; skipping key bindings file write.")
+        return
     try:
         with open(file_keyBindings,"w+") as file:
             file.write(KEYBINDINGS_TEXT_DEFAULT)
